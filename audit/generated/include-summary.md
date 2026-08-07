@@ -1,6 +1,6 @@
 # Resumed include audit
 
-Generated: 2026-08-07 16:19:26 -05:00
+Generated: 2026-08-07 16:21:10 -05:00
 
 This pass reused the existing sanitized file inventories. It did not repeat the 80 GB inventory and did not copy source assets.
 
