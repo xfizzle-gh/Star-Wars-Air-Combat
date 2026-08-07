@@ -4,17 +4,29 @@ The Workshop source files stay on the local Windows machine. GitHub and GitHub A
 
 ## Supported source locations
 
-The launcher checks these locations automatically, in order:
+The launcher checks these locations automatically, in order.
 
 ### Air-combat framework
 
-1. `E:\Star-Wars-Air-Combat\sources\air-combat-script`
-2. `E:\Steam\steamapps\workshop\content\400750\3666036374`
+1. `<repository>\sources\air-combat-script`
+2. `<repository>\sources\3666036374`
+3. A sibling `3666036374` folder beside the repository
+4. `E:\Star-Wars-Air-Combat\sources\air-combat-script`
+5. `E:\Steam\steamapps\workshop\content\400750\3666036374`
 
 ### Shattered Galaxy
 
-1. `E:\Star-Wars-Air-Combat\sources\shattered-galaxy`
-2. `E:\Steam\steamapps\workshop\content\400750\2984016031`
+1. `<repository>\sources\shattered-galaxy`
+2. `<repository>\sources\2984016031`
+3. A sibling `2984016031` folder beside the repository
+4. `E:\Star-Wars-Air-Combat\sources\shattered-galaxy`
+5. `E:\Steam\steamapps\workshop\content\400750\2984016031`
+
+This supports a repository located at:
+
+```text
+E:\Steam\steamapps\workshop\content\400750\Star-Wars-Air-Combat
+```
 
 ## One-click workflow
 
