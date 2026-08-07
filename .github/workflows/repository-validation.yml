@@ -1,0 +1,35 @@
+name: Repository validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate repository hygiene
+        shell: pwsh
+        run: ./tools/Test-RepositoryHygiene.ps1
+
+      - name: Validate generated CSV reports
+        shell: pwsh
+        run: |
+          $reports = @(Get-ChildItem -LiteralPath ./audit/generated -Filter *.csv -File -ErrorAction SilentlyContinue)
+          foreach ($report in $reports) {
+            try {
+              $rows = @(Import-Csv -LiteralPath $report.FullName)
+              Write-Host "$($report.Name): $($rows.Count) rows"
+            }
+            catch {
+              throw "Invalid CSV report $($report.Name): $($_.Exception.Message)"
+            }
+          }
