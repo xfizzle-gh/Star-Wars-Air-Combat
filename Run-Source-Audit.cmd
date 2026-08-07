@@ -2,6 +2,10 @@
 setlocal
 cd /d "%~dp0"
 
+echo Starting source audit dispatcher...
+echo Existing inventories will resume at include extraction automatically.
+echo.
+
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\Invoke-AuditAndPublish.ps1"
 set "EXIT_CODE=%ERRORLEVEL%"
 
