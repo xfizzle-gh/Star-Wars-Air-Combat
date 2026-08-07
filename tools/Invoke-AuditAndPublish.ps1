@@ -22,6 +22,7 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $workshopContentRoot = Split-Path -Parent $repositoryRoot
 $auditScript = Join-Path $PSScriptRoot 'Invoke-SourceAudit.ps1'
+$includeScript = Join-Path $PSScriptRoot 'Invoke-IncludeAudit.ps1'
 $hygieneScript = Join-Path $PSScriptRoot 'Test-RepositoryHygiene.ps1'
 $outputRoot = Join-Path $repositoryRoot 'audit\generated'
 
@@ -67,22 +68,31 @@ $dirtyLines = @(& git -C $repositoryRoot status --porcelain --untracked-files=al
 if ($LASTEXITCODE -ne 0) {
     throw 'Unable to inspect the Git working tree.'
 }
-if ($dirtyLines.Count -gt 0) {
-    throw "The repository has uncommitted changes. Commit or discard them before running the source audit.`n$($dirtyLines -join "`n")"
+
+$unexpectedChanges = @($dirtyLines | Where-Object {
+    $line = [string]$_
+    $path = if ($line.Length -gt 3) { $line.Substring(3).Replace('/', '\') } else { '' }
+    -not $path.StartsWith('audit\generated\', [System.StringComparison]::OrdinalIgnoreCase)
+})
+if ($unexpectedChanges.Count -gt 0) {
+    throw "The repository has changes outside audit/generated. Commit or discard them before running the source audit.`n$($unexpectedChanges -join "`n")"
 }
 
 Invoke-Git -Arguments @('fetch', 'origin', 'main') | Out-Null
 
 & git -C $repositoryRoot show-ref --verify --quiet "refs/heads/$BranchName"
 $branchExists = $LASTEXITCODE -eq 0
+$currentBranch = (& git -C $repositoryRoot branch --show-current).Trim()
 
-if ($branchExists) {
-    Invoke-Git -Arguments @('checkout', $BranchName) | Out-Null
-    Invoke-Git -Arguments @('rebase', 'origin/main') | Out-Null
+if ($currentBranch -ne $BranchName) {
+    if ($branchExists) {
+        Invoke-Git -Arguments @('checkout', $BranchName) | Out-Null
+    }
+    else {
+        Invoke-Git -Arguments @('checkout', '-b', $BranchName, 'origin/main') | Out-Null
+    }
 }
-else {
-    Invoke-Git -Arguments @('checkout', '-b', $BranchName, 'origin/main') | Out-Null
-}
+Invoke-Git -Arguments @('rebase', 'origin/main') | Out-Null
 
 $airCombatRoot = Select-ExistingDirectory -Purpose 'Air-combat source' -Candidates @(
     $AirCombatSource,
@@ -108,15 +118,44 @@ Write-Host "Shattered Galaxy source: $shatteredGalaxyRoot"
 Write-Host "Reports: $outputRoot"
 Write-Host ''
 
-& $auditScript -AirCombatSource $airCombatRoot -ShatteredGalaxySource $shatteredGalaxyRoot -OutputRoot $outputRoot
+$airInventoryPath = Join-Path $outputRoot 'air-combat-files.csv'
+$galaxyInventoryPath = Join-Path $outputRoot 'shattered-galaxy-files.csv'
+$hasExistingInventories = (
+    (Test-Path -LiteralPath $airInventoryPath -PathType Leaf) -and
+    (Test-Path -LiteralPath $galaxyInventoryPath -PathType Leaf)
+)
+
+if ($hasExistingInventories) {
+    Write-Host 'Existing inventories detected. Resuming at include extraction instead of repeating the full source scan.'
+    & $includeScript `
+        -AirCombatSource $airCombatRoot `
+        -ShatteredGalaxySource $shatteredGalaxyRoot `
+        -InventoryRoot $outputRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Include audit failed with exit code $LASTEXITCODE"
+    }
+}
+else {
+    & $auditScript `
+        -AirCombatSource $airCombatRoot `
+        -ShatteredGalaxySource $shatteredGalaxyRoot `
+        -OutputRoot $outputRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Source audit failed with exit code $LASTEXITCODE"
+    }
+}
+
 & $hygieneScript -RepositoryRoot $repositoryRoot
+if ($LASTEXITCODE -ne 0) {
+    throw "Repository hygiene validation failed with exit code $LASTEXITCODE"
+}
 
 Invoke-Git -Arguments @('add', '--', 'audit/generated') | Out-Null
 & git -C $repositoryRoot diff --cached --quiet
 $hasChanges = $LASTEXITCODE -ne 0
 
 if ($hasChanges) {
-    Invoke-Git -Arguments @('commit', '-m', 'audit: add sanitized workshop source inventories') | Out-Null
+    Invoke-Git -Arguments @('commit', '-m', 'audit: add sanitized workshop source reports') | Out-Null
 }
 else {
     Write-Host 'No generated audit changes need to be committed.'
