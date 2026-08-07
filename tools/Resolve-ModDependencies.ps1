@@ -19,7 +19,8 @@ $ErrorActionPreference = 'Stop'
 function Normalize-RelativePath {
     param([Parameter(Mandatory)][string]$Path)
 
-    $normalized = $Path.Trim().Trim('"', "'", '{', '}', '(', ')', '[', ']')
+    $trimChars = [char[]]@('"', "'", '{', '}', '(', ')', '[', ']')
+    $normalized = $Path.Trim().Trim($trimChars)
     $normalized = $normalized -replace '/', '\'
     $normalized = $normalized -replace '^\.\\', ''
     $normalized = $normalized -replace '^\\+', ''
@@ -33,7 +34,10 @@ function Get-SafeRelativePath {
         [Parameter(Mandatory)][string]$Path
     )
 
-    $base = $BasePath.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $base = $BasePath.TrimEnd([char[]]@(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    ))
     $baseUri = [Uri]($base + [System.IO.Path]::DirectorySeparatorChar)
     $pathUri = [Uri]$Path
     return ([Uri]::UnescapeDataString($baseUri.MakeRelativeUri($pathUri).ToString())).Replace('/', '\')
@@ -67,36 +71,23 @@ function Test-TextFile {
     }
 }
 
-function Read-TextSafely {
-    param([Parameter(Mandatory)][string]$Path)
-
-    try {
-        return [System.IO.File]::ReadAllText($Path)
-    }
-    catch {
-        return $null
-    }
-}
-
 function Get-ReferenceTokens {
     param([Parameter(Mandatory)][string]$Content)
 
     $tokens = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-
     $patterns = @(
-        '(?im)^\s*(?:#?include|include_once)\s*[\(\{]?\s*["''](?<token>[^"'']+)["'']',
-        '(?im)\{\s*(?:include|import)\s+["''](?<token>[^"'']+)["'']',
-        '["''](?<token>[^"'']*[\\/][^"'']+)["'']',
-        '["''](?<token>[^"'']+\.(?:inc|set|def|mdl|mtl|dds|tga|png|jpg|jpeg|wav|ogg|bank|fx|shader|anim|anm|lua|xml|json|cfg|entity|weapon|ammo|breed))["'']'
+        "(?im)^\s*(?:#?include|include_once)\s*[\(\{]?\s*[`\"'](?<token>[^`\"']+)[`\"']",
+        "(?im)\{\s*(?:include|import)\s+[`\"'](?<token>[^`\"']+)[`\"']",
+        "[`\"'](?<token>[^`\"']*[\\/][^`\"']+)[`\"']",
+        "[`\"'](?<token>[^`\"']+\.(?:inc|set|def|mdl|mtl|dds|tga|png|jpg|jpeg|wav|ogg|bank|fx|shader|anim|anm|lua|xml|json|cfg|entity|weapon|ammo|breed))[`\"']"
     )
 
     foreach ($pattern in $patterns) {
         foreach ($match in [regex]::Matches($Content, $pattern)) {
             $token = $match.Groups['token'].Value.Trim()
-            if ($token.Length -lt 2 -or $token.Length -gt 512) {
-                continue
+            if ($token.Length -ge 2 -and $token.Length -le 512) {
+                [void]$tokens.Add($token)
             }
-            [void]$tokens.Add($token)
         }
     }
 
@@ -125,59 +116,43 @@ function Resolve-Token {
         [Parameter(Mandatory)][hashtable]$ByStem
     )
 
+    $candidateMap = @{}
     $normalized = Normalize-RelativePath -Path $Token
-    $candidates = New-Object System.Collections.ArrayList
 
     if ($ByRelativePath.ContainsKey($normalized)) {
-        [void]$candidates.Add($ByRelativePath[$normalized])
+        $candidateMap[$ByRelativePath[$normalized].RelativePath] = $ByRelativePath[$normalized]
     }
 
     $fromDirectory = Split-Path -Parent $FromRelativePath
     if (-not [string]::IsNullOrWhiteSpace($fromDirectory)) {
-        $relativeToParent = Normalize-RelativePath -Path (Join-Path $fromDirectory $Token)
-        if ($ByRelativePath.ContainsKey($relativeToParent)) {
-            [void]$candidates.Add($ByRelativePath[$relativeToParent])
+        $parentRelative = Normalize-RelativePath -Path (Join-Path $fromDirectory $Token)
+        if ($ByRelativePath.ContainsKey($parentRelative)) {
+            $candidateMap[$ByRelativePath[$parentRelative].RelativePath] = $ByRelativePath[$parentRelative]
         }
     }
 
     $leaf = [System.IO.Path]::GetFileName($normalized)
     if (-not [string]::IsNullOrWhiteSpace($leaf) -and $ByFileName.ContainsKey($leaf)) {
-        foreach ($entry in $ByFileName[$leaf]) {
-            [void]$candidates.Add($entry)
+        foreach ($candidate in $ByFileName[$leaf]) {
+            $candidateMap[$candidate.RelativePath] = $candidate
         }
     }
 
     $stem = [System.IO.Path]::GetFileNameWithoutExtension($leaf)
     if (-not [string]::IsNullOrWhiteSpace($stem) -and $ByStem.ContainsKey($stem)) {
-        foreach ($entry in $ByStem[$stem]) {
-            [void]$candidates.Add($entry)
+        foreach ($candidate in $ByStem[$stem]) {
+            $candidateMap[$candidate.RelativePath] = $candidate
         }
     }
 
-    $unique = @($candidates | Sort-Object RelativePath -Unique)
-    if ($unique.Count -eq 1) {
-        return [pscustomobject]@{
-            Status     = 'resolved'
-            Resolution = 'unique'
-            Target     = $unique[0]
-            Candidates = $unique
-        }
+    $candidates = @($candidateMap.Values | Sort-Object RelativePath)
+    if ($candidates.Count -eq 1) {
+        return [pscustomobject]@{ Status = 'resolved'; Target = $candidates[0]; Candidates = $candidates }
     }
-    if ($unique.Count -gt 1) {
-        return [pscustomobject]@{
-            Status     = 'ambiguous'
-            Resolution = 'multiple candidates'
-            Target     = $null
-            Candidates = $unique
-        }
+    if ($candidates.Count -gt 1) {
+        return [pscustomobject]@{ Status = 'ambiguous'; Target = $null; Candidates = $candidates }
     }
-
-    return [pscustomobject]@{
-        Status     = 'unresolved'
-        Resolution = 'no candidate'
-        Target     = $null
-        Candidates = @()
-    }
+    return [pscustomobject]@{ Status = 'unresolved'; Target = $null; Candidates = @() }
 }
 
 $root = [System.IO.Path]::GetFullPath((Resolve-Path -LiteralPath $SourceRoot).Path)
@@ -228,13 +203,14 @@ while ($queue.Count -gt 0) {
     if (-not $visited.Add($current.RelativePath)) {
         continue
     }
-
     if (-not $current.IsText) {
         continue
     }
 
-    $content = Read-TextSafely -Path $current.FullName
-    if ($null -eq $content) {
+    try {
+        $content = [System.IO.File]::ReadAllText($current.FullName)
+    }
+    catch {
         continue
     }
 
@@ -242,22 +218,20 @@ while ($queue.Count -gt 0) {
         $result = Resolve-Token -Token $token -FromRelativePath $current.RelativePath -ByRelativePath $byRelativePath -ByFileName $byFileName -ByStem $byStem
 
         if ($result.Status -eq 'resolved') {
-            $target = $result.Target
             [void]$edges.Add([pscustomobject]@{
-                From       = $current.RelativePath
-                Token      = $token
-                To         = $target.RelativePath
-                Resolution = $result.Resolution
+                From  = $current.RelativePath
+                Token = $token
+                To    = $result.Target.RelativePath
             })
-            if (-not $visited.Contains($target.RelativePath)) {
-                [void]$queue.Enqueue($target)
+            if (-not $visited.Contains($result.Target.RelativePath)) {
+                [void]$queue.Enqueue($result.Target)
             }
         }
         elseif ($result.Status -eq 'ambiguous') {
             [void]$ambiguous.Add([pscustomobject]@{
                 From       = $current.RelativePath
                 Token      = $token
-                Candidates = (($result.Candidates | ForEach-Object RelativePath) -join ' | ')
+                Candidates = (($result.Candidates | ForEach-Object { $_.RelativePath }) -join ' | ')
             })
         }
         else {
@@ -270,15 +244,16 @@ while ($queue.Count -gt 0) {
 }
 
 $closure = @($files | Where-Object { $visited.Contains($_.RelativePath) } | Sort-Object RelativePath | Select-Object RelativePath, LengthBytes, IsText)
-$edges = @($edges | Sort-Object From, To, Token -Unique)
-$unresolved = @($unresolved | Sort-Object From, Token -Unique)
-$ambiguous = @($ambiguous | Sort-Object From, Token -Unique)
+$resolvedEdges = @($edges | Sort-Object From, To, Token -Unique)
+$unresolvedRows = @($unresolved | Sort-Object From, Token -Unique)
+$ambiguousRows = @($ambiguous | Sort-Object From, Token -Unique)
 
 $closure | Export-Csv -LiteralPath (Join-Path $output 'closure-files.csv') -NoTypeInformation -Encoding UTF8
-$edges | Export-Csv -LiteralPath (Join-Path $output 'resolved-edges.csv') -NoTypeInformation -Encoding UTF8
-$unresolved | Export-Csv -LiteralPath (Join-Path $output 'unresolved-references.csv') -NoTypeInformation -Encoding UTF8
-$ambiguous | Export-Csv -LiteralPath (Join-Path $output 'ambiguous-references.csv') -NoTypeInformation -Encoding UTF8
+$resolvedEdges | Export-Csv -LiteralPath (Join-Path $output 'resolved-edges.csv') -NoTypeInformation -Encoding UTF8
+$unresolvedRows | Export-Csv -LiteralPath (Join-Path $output 'unresolved-references.csv') -NoTypeInformation -Encoding UTF8
+$ambiguousRows | Export-Csv -LiteralPath (Join-Path $output 'ambiguous-references.csv') -NoTypeInformation -Encoding UTF8
 
+$rootLines = @($roots | ForEach-Object { '- ' + $_ }) -join "`n"
 $summary = @"
 # Dependency closure
 
@@ -286,20 +261,25 @@ Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')
 
 ## Roots
 
-$(@($roots | ForEach-Object { "- `$_`" }) -join "`n")
+$rootLines
 
 ## Results
 
 - Closure files: $($closure.Count)
-- Resolved edges: $($edges.Count)
-- Unresolved references: $($unresolved.Count)
-- Ambiguous references: $($ambiguous.Count)
+- Resolved edges: $($resolvedEdges.Count)
+- Unresolved references: $($unresolvedRows.Count)
+- Ambiguous references: $($ambiguousRows.Count)
 
-This is a heuristic reference scan. Every unresolved or ambiguous entry must be reviewed before files are copied into the standalone mod.
+This is a heuristic reference scan. Review every unresolved or ambiguous entry before copying files.
 "@
-[System.IO.File]::WriteAllText((Join-Path $output 'summary.md'), $summary, (New-Object System.Text.UTF8Encoding($false)))
+
+[System.IO.File]::WriteAllText(
+    (Join-Path $output 'summary.md'),
+    $summary,
+    (New-Object System.Text.UTF8Encoding($false))
+)
 
 Write-Host "Dependency closure written to: $output"
-if ($unresolved.Count -gt 0 -or $ambiguous.Count -gt 0) {
-    Write-Warning 'The closure has unresolved or ambiguous references. Review the generated reports before extraction.'
+if ($unresolvedRows.Count -gt 0 -or $ambiguousRows.Count -gt 0) {
+    Write-Warning 'The closure has unresolved or ambiguous references.'
 }
