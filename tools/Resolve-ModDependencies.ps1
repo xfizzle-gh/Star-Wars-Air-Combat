@@ -97,9 +97,13 @@ function Get-ReferenceTokens {
 function Add-ToLookup {
     param(
         [Parameter(Mandatory)][hashtable]$Lookup,
-        [Parameter(Mandatory)][string]$Key,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Key,
         [Parameter(Mandatory)][object]$Value
     )
+
+    if ([string]::IsNullOrWhiteSpace($Key)) {
+        return
+    }
 
     if (-not $Lookup.ContainsKey($Key)) {
         $Lookup[$Key] = New-Object System.Collections.ArrayList
