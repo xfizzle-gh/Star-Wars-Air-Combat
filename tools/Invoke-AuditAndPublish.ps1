@@ -53,6 +53,35 @@ function Invoke-Git {
     return $exitCode
 }
 
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    throw 'Git was not found on PATH. Open the repository in GitHub Desktop and use Repository > Open in Command Prompt, then run the launcher again.'
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot '.git'))) {
+    throw "This script must run from a cloned Git repository. Repository root: $repositoryRoot"
+}
+
+$dirtyLines = @(& git -C $repositoryRoot status --porcelain --untracked-files=all)
+if ($LASTEXITCODE -ne 0) {
+    throw 'Unable to inspect the Git working tree.'
+}
+if ($dirtyLines.Count -gt 0) {
+    throw "The repository has uncommitted changes. Commit or discard them before running the source audit.`n$($dirtyLines -join "`n")"
+}
+
+Invoke-Git -Arguments @('fetch', 'origin', 'main') | Out-Null
+
+& git -C $repositoryRoot show-ref --verify --quiet "refs/heads/$BranchName"
+$branchExists = $LASTEXITCODE -eq 0
+
+if ($branchExists) {
+    Invoke-Git -Arguments @('checkout', $BranchName) | Out-Null
+    Invoke-Git -Arguments @('rebase', 'origin/main') | Out-Null
+}
+else {
+    Invoke-Git -Arguments @('checkout', '-b', $BranchName, 'origin/main') | Out-Null
+}
+
 $airCombatRoot = Select-ExistingDirectory -Purpose 'Air-combat source' -Candidates @(
     $AirCombatSource,
     'E:\Star-Wars-Air-Combat\sources\air-combat-script',
@@ -65,59 +94,23 @@ $shatteredGalaxyRoot = Select-ExistingDirectory -Purpose 'Shattered Galaxy sourc
     'E:\Steam\steamapps\workshop\content\400750\2984016031'
 )
 
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    throw 'Git was not found on PATH. Open the repository once in GitHub Desktop, then run this command again from its repository menu or PowerShell.'
-}
-
-if (-not (Test-Path -LiteralPath (Join-Path $repositoryRoot '.git'))) {
-    throw "This script must run from a cloned Git repository. Repository root: $repositoryRoot"
-}
-
 Write-Host "Air-combat source: $airCombatRoot"
 Write-Host "Shattered Galaxy source: $shatteredGalaxyRoot"
 Write-Host "Reports: $outputRoot"
 Write-Host ''
 
 & $auditScript -AirCombatSource $airCombatRoot -ShatteredGalaxySource $shatteredGalaxyRoot -OutputRoot $outputRoot
-if ($LASTEXITCODE -ne 0) {
-    throw "Source audit failed with exit code $LASTEXITCODE"
-}
-
 & $hygieneScript -RepositoryRoot $repositoryRoot
-if ($LASTEXITCODE -ne 0) {
-    throw "Repository hygiene validation failed with exit code $LASTEXITCODE"
-}
-
-$currentBranch = (& git -C $repositoryRoot branch --show-current).Trim()
-if ([string]::IsNullOrWhiteSpace($currentBranch)) {
-    throw 'Unable to determine the current Git branch.'
-}
-
-$branchExists = $false
-& git -C $repositoryRoot show-ref --verify --quiet "refs/heads/$BranchName"
-if ($LASTEXITCODE -eq 0) {
-    $branchExists = $true
-}
-
-if ($currentBranch -ne $BranchName) {
-    if ($branchExists) {
-        Invoke-Git -Arguments @('checkout', $BranchName) | Out-Null
-        Invoke-Git -Arguments @('rebase', 'main') | Out-Null
-    }
-    else {
-        Invoke-Git -Arguments @('checkout', '-b', $BranchName, 'main') | Out-Null
-    }
-}
 
 Invoke-Git -Arguments @('add', '--', 'audit/generated') | Out-Null
 & git -C $repositoryRoot diff --cached --quiet
 $hasChanges = $LASTEXITCODE -ne 0
 
-if (-not $hasChanges) {
-    Write-Host 'No generated audit changes need to be committed.'
+if ($hasChanges) {
+    Invoke-Git -Arguments @('commit', '-m', 'audit: add sanitized workshop source inventories') | Out-Null
 }
 else {
-    Invoke-Git -Arguments @('commit', '-m', 'audit: add sanitized workshop source inventories') | Out-Null
+    Write-Host 'No generated audit changes need to be committed.'
 }
 
 if ($SkipPush) {
@@ -134,8 +127,8 @@ if ($SkipPullRequest) {
 
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 if ($null -eq $gh) {
-    Write-Warning 'GitHub CLI was not found. The branch was pushed successfully, but the pull request could not be opened automatically.'
-    Write-Host "Open: https://github.com/xfizzle-gh/Star-Wars-Air-Combat/compare/main...$BranchName?expand=1"
+    Write-Warning 'GitHub CLI was not found. The audit branch was pushed, but a pull request could not be opened automatically.'
+    Write-Host "Open: https://github.com/xfizzle-gh/Star-Wars-Air-Combat/compare/main...audit/source-inventories?expand=1"
     exit 0
 }
 
@@ -153,7 +146,7 @@ $body = @'
 - adds TIE fighter and X-wing candidate reports
 - copies no source assets
 
-Closes no implementation issue. Supplies the evidence needed to begin #2 and #3.
+This supplies the evidence needed to begin issues #2 and #3.
 '@
 
 & gh -R 'xfizzle-gh/Star-Wars-Air-Combat' pr create `
