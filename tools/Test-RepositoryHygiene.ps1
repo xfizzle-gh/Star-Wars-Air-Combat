@@ -78,7 +78,7 @@ foreach ($required in $requiredFiles) {
     }
 }
 
-$powerShellFiles = @($files | Where-Object Extension -eq '.ps1')
+$powerShellFiles = @($files | Where-Object { $_.Extension -eq '.ps1' })
 foreach ($scriptFile in $powerShellFiles) {
     $tokens = $null
     $parseErrors = $null
@@ -88,7 +88,7 @@ foreach ($scriptFile in $powerShellFiles) {
         [ref]$parseErrors
     )
 
-    foreach ($parseError in @($parseErrors)) {
+    foreach ($parseError in @($parseErrors | Where-Object { $null -ne $_ })) {
         $relative = $scriptFile.FullName.Substring($root.Length).TrimStart('\', '/')
         Add-ValidationError "PowerShell parse error in $relative at line $($parseError.Extent.StartLineNumber): $($parseError.Message)"
     }
