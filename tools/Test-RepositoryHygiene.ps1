@@ -15,6 +15,18 @@ function Add-ValidationError {
     [void]$script:errors.Add($Message)
 }
 
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Add-ValidationError 'Git is required for repository hygiene validation.'
+    $trackedRelativePaths = @()
+}
+else {
+    $trackedRelativePaths = @(& git -C $root ls-files)
+    if ($LASTEXITCODE -ne 0) {
+        Add-ValidationError 'Unable to enumerate tracked repository files.'
+        $trackedRelativePaths = @()
+    }
+}
+
 $forbiddenTopLevelDirectories = @(
     'source',
     'sources',
@@ -26,16 +38,28 @@ $forbiddenTopLevelDirectories = @(
 )
 
 foreach ($directory in $forbiddenTopLevelDirectories) {
-    if (Test-Path -LiteralPath (Join-Path $root $directory) -PathType Container) {
-        Add-ValidationError "Forbidden source or staging directory is present: $directory"
+    $normalizedPrefix = $directory.ToLowerInvariant() + '/'
+    $trackedMatch = @($trackedRelativePaths | Where-Object {
+        $normalized = $_.Replace('\', '/').ToLowerInvariant()
+        $normalized -eq $directory.ToLowerInvariant() -or $normalized.StartsWith($normalizedPrefix)
+    })
+
+    if ($trackedMatch.Count -gt 0) {
+        Add-ValidationError "Forbidden source or staging directory contains tracked files: $directory"
     }
 }
 
-$forbiddenArchiveExtensions = @('.zip', '.7z', '.rar')
-$files = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force | Where-Object {
-    $_.FullName -notmatch '[\\/]\.git[\\/]'
-})
+$files = @(
+    foreach ($relativePath in $trackedRelativePaths) {
+        $nativeRelativePath = $relativePath.Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+        $fullPath = Join-Path $root $nativeRelativePath
+        if (Test-Path -LiteralPath $fullPath -PathType Leaf) {
+            Get-Item -LiteralPath $fullPath -Force
+        }
+    }
+)
 
+$forbiddenArchiveExtensions = @('.zip', '.7z', '.rar')
 foreach ($file in $files) {
     $relative = $file.FullName.Substring($root.Length).TrimStart('\', '/')
 
@@ -99,4 +123,4 @@ if ($errors.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Repository hygiene validation passed. Inspected $($files.Count) files."
+Write-Host "Repository hygiene validation passed. Inspected $($files.Count) tracked files."
