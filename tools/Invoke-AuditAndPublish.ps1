@@ -20,6 +20,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
+$workshopContentRoot = Split-Path -Parent $repositoryRoot
 $auditScript = Join-Path $PSScriptRoot 'Invoke-SourceAudit.ps1'
 $hygieneScript = Join-Path $PSScriptRoot 'Test-RepositoryHygiene.ps1'
 $outputRoot = Join-Path $repositoryRoot 'audit\generated'
@@ -84,16 +85,23 @@ else {
 
 $airCombatRoot = Select-ExistingDirectory -Purpose 'Air-combat source' -Candidates @(
     $AirCombatSource,
+    (Join-Path $repositoryRoot 'sources\air-combat-script'),
+    (Join-Path $repositoryRoot 'sources\3666036374'),
+    (Join-Path $workshopContentRoot '3666036374'),
     'E:\Star-Wars-Air-Combat\sources\air-combat-script',
     'E:\Steam\steamapps\workshop\content\400750\3666036374'
 )
 
 $shatteredGalaxyRoot = Select-ExistingDirectory -Purpose 'Shattered Galaxy source' -Candidates @(
     $ShatteredGalaxySource,
+    (Join-Path $repositoryRoot 'sources\shattered-galaxy'),
+    (Join-Path $repositoryRoot 'sources\2984016031'),
+    (Join-Path $workshopContentRoot '2984016031'),
     'E:\Star-Wars-Air-Combat\sources\shattered-galaxy',
     'E:\Steam\steamapps\workshop\content\400750\2984016031'
 )
 
+Write-Host "Repository root: $repositoryRoot"
 Write-Host "Air-combat source: $airCombatRoot"
 Write-Host "Shattered Galaxy source: $shatteredGalaxyRoot"
 Write-Host "Reports: $outputRoot"
