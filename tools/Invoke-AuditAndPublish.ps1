@@ -28,7 +28,7 @@ $outputRoot = Join-Path $repositoryRoot 'audit\generated'
 function Select-ExistingDirectory {
     param(
         [Parameter(Mandatory)][string]$Purpose,
-        [Parameter(Mandatory)][string[]]$Candidates
+        [Parameter(Mandatory)][AllowEmptyString()][string[]]$Candidates
     )
 
     foreach ($candidate in $Candidates) {
@@ -37,7 +37,8 @@ function Select-ExistingDirectory {
         }
     }
 
-    throw "$Purpose folder was not found. Checked: $($Candidates -join '; ')"
+    $checkedCandidates = @($Candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    throw "$Purpose folder was not found. Checked: $($checkedCandidates -join '; ')"
 }
 
 function Invoke-Git {
