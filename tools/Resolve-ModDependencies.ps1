@@ -76,10 +76,10 @@ function Get-ReferenceTokens {
 
     $tokens = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     $patterns = @(
-        "(?im)^\s*(?:#?include|include_once)\s*[\(\{]?\s*[`\"'](?<token>[^`\"']+)[`\"']",
-        "(?im)\{\s*(?:include|import)\s+[`\"'](?<token>[^`\"']+)[`\"']",
-        "[`\"'](?<token>[^`\"']*[\\/][^`\"']+)[`\"']",
-        "[`\"'](?<token>[^`\"']+\.(?:inc|set|def|mdl|mtl|dds|tga|png|jpg|jpeg|wav|ogg|bank|fx|shader|anim|anm|lua|xml|json|cfg|entity|weapon|ammo|breed))[`\"']"
+        '(?im)^\s*(?:#?include|include_once)\s*[\(\{]?\s*["''](?<token>[^"'']+)["'']',
+        '(?im)\{\s*(?:include|import)\s+["''](?<token>[^"'']+)["'']',
+        '["''](?<token>[^"'']*[\\/][^"'']+)["'']',
+        '["''](?<token>[^"'']+\.(?:inc|set|def|mdl|mtl|dds|tga|png|jpg|jpeg|wav|ogg|bank|fx|shader|anim|anm|lua|xml|json|cfg|entity|weapon|ammo|breed))["'']'
     )
 
     foreach ($pattern in $patterns) {
