@@ -1,0 +1,30 @@
+# Local Steam Workshop sources
+sources/
+source/
+workshop/
+Steam/
+
+# Extracted third-party assets pending review
+staging/
+quarantine/
+unreviewed-assets/
+
+# Large archives and generated inventories
+*.zip
+*.7z
+*.rar
+*.bak
+*.tmp
+
+# Windows metadata
+Thumbs.db
+Desktop.ini
+
+# Local tooling
+.vscode/
+.idea/
+
+# Build and game output
+build/
+dist/
+logs/
